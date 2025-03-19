@@ -588,6 +588,44 @@ pub fn list_files(repo_path: String, directory: Option<String>) -> Result<Vec<Fi
     Ok(entries)
 }
 
+/// Checks out the specified branch
+#[tauri::command]
+pub fn checkout_branch(repo_path: String, branch_name: String) -> Result<(), JanusError> {
+    let repo = Repository::open(&repo_path).map_err(|e| {
+        error!("Failed to open repository at {}: {}", repo_path, e);
+        JanusError::GitError(format!("Failed to open repository: {}", e))
+    })?;
+    
+    // Find the branch
+    let branch = repo.find_branch(&branch_name, BranchType::Local).map_err(|e| {
+        error!("Failed to find branch {}: {}", branch_name, e);
+        JanusError::GitError(format!("Failed to find branch {}: {}", branch_name, e))
+    })?;
+    
+    // Get the branch reference
+    let branch_ref = branch.get();
+    
+    // Checkout the branch
+    let obj = branch_ref.peel(git2::ObjectType::Any).map_err(|e| {
+        error!("Failed to peel branch reference: {}", e);
+        JanusError::GitError(format!("Failed to peel branch reference: {}", e))
+    })?;
+    
+    repo.checkout_tree(&obj, None).map_err(|e| {
+        error!("Failed to checkout tree: {}", e);
+        JanusError::GitError(format!("Failed to checkout tree: {}", e))
+    })?;
+    
+    // Set HEAD to the new branch
+    repo.set_head(branch_ref.name().unwrap_or("")).map_err(|e| {
+        error!("Failed to set HEAD: {}", e);
+        JanusError::GitError(format!("Failed to set HEAD: {}", e))
+    })?;
+    
+    info!("Successfully checked out branch: {}", branch_name);
+    Ok(())
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FileEntry {
     pub name: String,

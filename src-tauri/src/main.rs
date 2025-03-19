@@ -32,6 +32,7 @@ fn main() {
             git::get_commits,
             git::create_branch,
             git::delete_branch,
+            git::checkout_branch,
             
             // File operations
             git::list_files,

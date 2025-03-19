@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/tauri';
+  import { createEventDispatcher } from 'svelte';
   
   export let branches = [];
   export let repoPath = '';
@@ -8,11 +9,30 @@
   let isCreatingBranch = false;
   let newBranchName = '';
   let errorMessage = '';
+  let isLoading = false;
+  
+  const dispatch = createEventDispatcher();
   
   function selectBranch(branch) {
     if (branch) {
-      currentBranch = branch;
-      // Dispatch event in a real implementation
+      dispatch('branchSelected', branch);
+    }
+  }
+  
+  async function refreshBranches() {
+    if (!repoPath) return;
+    
+    try {
+      isLoading = true;
+      branches = await invoke('get_branches', { repoPath });
+      
+      // Find current branch (HEAD)
+      currentBranch = branches.find(b => b.is_head) || null;
+    } catch (error) {
+      console.error('Failed to refresh branches:', error);
+      errorMessage = `Failed to refresh branches: ${error.message || error}`;
+    } finally {
+      isLoading = false;
     }
   }
   
@@ -35,29 +55,25 @@
     }
     
     try {
-      // In a real implementation, this would be a Tauri invoke call
-      // const result = await invoke('create_branch', { 
-      //   repoPath, 
-      //   branchName: newBranchName 
-      // });
+      isLoading = true;
       
-      // Mock the result for now
-      const mockBranch = {
-        name: newBranchName,
-        is_head: false,
-        upstream: null,
-        commit_id: currentBranch ? currentBranch.commit_id : ''
-      };
+      const newBranch = await invoke('create_branch', { 
+        repoPath, 
+        branchName: newBranchName 
+      });
       
-      // Add to branches (would be updated via a refresh in real implementation)
-      branches = [...branches, mockBranch];
+      // Refresh branches
+      await refreshBranches();
       
       // Reset form
       newBranchName = '';
       isCreatingBranch = false;
       errorMessage = '';
     } catch (error) {
+      console.error('Failed to create branch:', error);
       errorMessage = `Failed to create branch: ${error.message || error}`;
+    } finally {
+      isLoading = false;
     }
   }
   
@@ -69,17 +85,22 @@
     
     if (confirm(`Are you sure you want to delete the branch '${branch.name}'?`)) {
       try {
-        // In a real implementation, this would be a Tauri invoke call
-        // await invoke('delete_branch', { 
-        //   repoPath, 
-        //   branchName: branch.name 
-        // });
+        isLoading = true;
         
-        // Update branches (would be updated via a refresh in real implementation)
-        branches = branches.filter(b => b.name !== branch.name);
+        await invoke('delete_branch', { 
+          repoPath, 
+          branchName: branch.name 
+        });
+        
+        // Refresh branches
+        await refreshBranches();
+        
         errorMessage = '';
       } catch (error) {
+        console.error('Failed to delete branch:', error);
         errorMessage = `Failed to delete branch: ${error.message || error}`;
+      } finally {
+        isLoading = false;
       }
     }
   }
@@ -94,7 +115,10 @@
 <div class="branch-manager">
   <div class="header">
     <h3>Branches</h3>
-    <button class="create-btn" on:click={() => isCreatingBranch = true}>New</button>
+    <div class="header-actions">
+      <button class="refresh-btn" on:click={refreshBranches} disabled={isLoading}>↻</button>
+      <button class="create-btn" on:click={() => isCreatingBranch = true} disabled={isLoading}>New</button>
+    </div>
   </div>
   
   {#if errorMessage}
@@ -110,42 +134,54 @@
         autofocus
       />
       <div class="form-actions">
-        <button class="cancel-btn" on:click={cancelCreateBranch}>Cancel</button>
-        <button class="create-btn" on:click={createBranch}>Create</button>
+        <button class="cancel-btn" on:click={cancelCreateBranch} disabled={isLoading}>Cancel</button>
+        <button class="create-btn" on:click={createBranch} disabled={isLoading}>Create</button>
       </div>
     </div>
   {/if}
   
-  <ul class="branch-list">
-    {#each branches as branch}
-      <li class={branch.is_head ? 'current' : ''}>
-        <div class="branch-info" on:click={() => selectBranch(branch)}>
-          <span class="branch-name">{branch.name}</span>
-          {#if branch.is_head}
-            <span class="badge">HEAD</span>
-          {/if}
-        </div>
-        <div class="branch-actions">
-          {#if !branch.is_head}
-            <button 
-              class="delete-btn" 
-              on:click={(e) => {
-                e.stopPropagation();
-                deleteBranch(branch);
-              }}
-            >
-              &times;
-            </button>
-          {/if}
-        </div>
-      </li>
-    {/each}
-  </ul>
+  {#if isLoading}
+    <div class="loading">
+      <div class="mini-spinner"></div>
+      <span>Loading branches...</span>
+    </div>
+  {:else if branches.length === 0}
+    <div class="empty-state">No branches found</div>
+  {:else}
+    <ul class="branch-list">
+      {#each branches as branch}
+        <li class={branch.is_head ? 'current' : ''}>
+          <div class="branch-info" on:click={() => selectBranch(branch)}>
+            <span class="branch-name">{branch.name}</span>
+            {#if branch.is_head}
+              <span class="badge">HEAD</span>
+            {/if}
+          </div>
+          <div class="branch-actions">
+            {#if !branch.is_head}
+              <button 
+                class="delete-btn" 
+                on:click={(e) => {
+                  e.stopPropagation();
+                  deleteBranch(branch);
+                }}
+              >
+                &times;
+              </button>
+            {/if}
+          </div>
+        </li>
+      {/each}
+    </ul>
+  {/if}
 </div>
 
 <style>
   .branch-manager {
     padding: 0.5rem;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
   }
   
   .header {
@@ -160,10 +196,17 @@
     font-size: 1rem;
   }
   
+  .header-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+  
   .branch-list {
     list-style: none;
     padding: 0;
     margin: 0;
+    overflow-y: auto;
+    flex: 1;
   }
   
   .branch-list li {
@@ -230,13 +273,28 @@
     gap: 0.5rem;
   }
   
-  .create-btn {
+  .create-btn, .refresh-btn {
     background-color: #0066cc;
     color: white;
     border: none;
     border-radius: 4px;
     padding: 0.25rem 0.5rem;
     cursor: pointer;
+  }
+  
+  .create-btn:disabled, .refresh-btn:disabled {
+    background-color: #99ccff;
+    cursor: not-allowed;
+  }
+  
+  .refresh-btn {
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
   }
   
   .cancel-btn {
@@ -247,9 +305,47 @@
     cursor: pointer;
   }
   
+  .cancel-btn:disabled {
+    background-color: #f8f8f8;
+    color: #aaa;
+    cursor: not-allowed;
+  }
+  
   .error-message {
     color: #f05050;
     font-size: 0.85rem;
     margin-bottom: 0.5rem;
+    padding: 0.5rem;
+    background-color: #fff0f0;
+    border-radius: 4px;
+  }
+  
+  .loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    color: #666;
+  }
+  
+  .mini-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(0, 0, 0, 0.1);
+    border-radius: 50%;
+    border-top-color: #0066cc;
+    animation: spin 1s ease-in-out infinite;
+    margin-right: 0.5rem;
+  }
+  
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  
+  .empty-state {
+    padding: 1rem;
+    text-align: center;
+    color: #666;
+    font-style: italic;
   }
 </style> 
