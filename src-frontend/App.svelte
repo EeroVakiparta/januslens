@@ -1,12 +1,22 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/tauri';
+  import { dialog } from '@tauri-apps/api';
   
+  import GitGraph from './components/GitGraph.svelte';
+  import BranchManager from './components/BranchManager.svelte';
+  import RepoExplorer from './components/RepoExplorer.svelte';
+  import CommitPanel from './components/CommitPanel.svelte';
+  import DiffViewer from './components/DiffViewer.svelte';
+  
+  // App state
   let repositories = [];
   let currentRepo = null;
   let branches = [];
   let commits = [];
   let isLoading = false;
+  let activeTab = 'history'; // 'history' or 'commit'
+  let currentBranch = null;
   
   onMount(async () => {
     try {
@@ -19,20 +29,34 @@
     }
   });
   
-  async function openRepository(path) {
+  async function openRepository() {
     try {
-      isLoading = true;
-      currentRepo = await invoke('open_repository', { path });
-      
-      // Once a repo is opened, load branches
-      branches = await invoke('get_branches', { repo_path: path });
-      
-      // Load commits from HEAD
-      commits = await invoke('get_commits', { 
-        repo_path: path,
-        branch_name: null,
-        limit: 100
+      // Open a file dialog to select a directory
+      const selected = await dialog.open({
+        directory: true,
+        multiple: false,
+        title: 'Select Git Repository'
       });
+      
+      if (selected) {
+        isLoading = true;
+        const path = Array.isArray(selected) ? selected[0] : selected;
+        
+        currentRepo = await invoke('open_repository', { path });
+        
+        // Once a repo is opened, load branches
+        branches = await invoke('get_branches', { repo_path: path });
+        
+        // Find current branch (HEAD)
+        currentBranch = branches.find(b => b.is_head) || null;
+        
+        // Load commits from HEAD
+        commits = await invoke('get_commits', { 
+          repo_path: path,
+          branch_name: null,
+          limit: 100
+        });
+      }
     } catch (error) {
       console.error('Failed to open repository:', error);
     } finally {
@@ -45,6 +69,14 @@
     
     try {
       isLoading = true;
+      
+      // Find the branch object
+      const branch = branches.find(b => b.name === branchName);
+      if (branch) {
+        currentBranch = branch;
+      }
+      
+      // Load commits for selected branch
       commits = await invoke('get_commits', {
         repo_path: currentRepo.path,
         branch_name: branchName,
@@ -56,6 +88,10 @@
       isLoading = false;
     }
   }
+  
+  function handleBranchSelect(branch) {
+    selectBranch(branch.name);
+  }
 </script>
 
 <main>
@@ -63,59 +99,65 @@
     <header class="app-header">
       <h1>JanusLens</h1>
       <div class="repo-selector">
-        {#if repositories.length > 0}
-          <select on:change={(e) => openRepository(e.target.value)}>
-            <option value="">Select Repository</option>
-            {#each repositories as repo}
-              <option value={repo.path}>{repo.name}</option>
-            {/each}
-          </select>
+        {#if currentRepo}
+          <span class="current-repo">{currentRepo.name}</span>
+          <button class="repo-btn" on:click={() => openRepository()}>Change</button>
         {:else}
-          <button class="open-repo-btn">Open Repository</button>
+          <button class="open-repo-btn" on:click={() => openRepository()}>Open Repository</button>
         {/if}
       </div>
     </header>
     
     <div class="app-content">
       {#if isLoading}
-        <div class="loading">Loading...</div>
+        <div class="loading">
+          <div class="spinner"></div>
+          <div class="loading-text">Loading...</div>
+        </div>
       {:else if currentRepo}
         <div class="sidebar">
-          <h3>Branches</h3>
-          <ul class="branch-list">
-            {#each branches as branch}
-              <li 
-                class:current={branch.is_head}
-                on:click={() => selectBranch(branch.name)}
-              >
-                {branch.name}
-              </li>
-            {/each}
-          </ul>
+          <BranchManager 
+            branches={branches} 
+            repoPath={currentRepo.path}
+            currentBranch={currentBranch}
+          />
+          
+          <div class="sidebar-section">
+            <RepoExplorer repoPath={currentRepo.path} />
+          </div>
         </div>
         
         <div class="main-content">
-          <div class="commit-graph">
-            <h3>Commit History</h3>
-            <div class="commits-container">
-              {#each commits as commit}
-                <div class="commit-item">
-                  <div class="commit-id">{commit.short_id}</div>
-                  <div class="commit-details">
-                    <div class="commit-summary">{commit.summary}</div>
-                    <div class="commit-meta">
-                      {commit.author} - {new Date(commit.time * 1000).toLocaleString()}
-                    </div>
-                  </div>
-                </div>
-              {/each}
-            </div>
+          <div class="tab-nav">
+            <button 
+              class="tab-btn" 
+              class:active={activeTab === 'history'}
+              on:click={() => activeTab = 'history'}
+            >
+              History
+            </button>
+            <button 
+              class="tab-btn"
+              class:active={activeTab === 'commit'}
+              on:click={() => activeTab = 'commit'}
+            >
+              Changes
+            </button>
+          </div>
+          
+          <div class="tab-content">
+            {#if activeTab === 'history'}
+              <GitGraph commits={commits} branches={branches} />
+            {:else}
+              <CommitPanel repoPath={currentRepo.path} />
+            {/if}
           </div>
         </div>
       {:else}
         <div class="empty-state">
-          <h2>No Repository Selected</h2>
+          <h2>Welcome to JanusLens</h2>
           <p>Open a Git repository to get started</p>
+          <button class="primary-btn" on:click={() => openRepository()}>Open Repository</button>
         </div>
       {/if}
     </div>
@@ -153,59 +195,49 @@
   }
   
   .sidebar {
-    width: 220px;
+    width: 240px;
     border-right: 1px solid #ddd;
     overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .sidebar-section {
+    flex: 1;
+    overflow-y: auto;
+    border-top: 1px solid #ddd;
     padding: 1rem;
   }
   
   .main-content {
     flex: 1;
-    overflow-y: auto;
-    padding: 1rem;
-  }
-  
-  .branch-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-  }
-  
-  .branch-list li {
-    padding: 0.5rem;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-  
-  .branch-list li:hover {
-    background-color: #f0f0f0;
-  }
-  
-  .branch-list li.current {
-    background-color: #e0f0ff;
-    font-weight: bold;
-  }
-  
-  .commit-item {
+    overflow: hidden;
     display: flex;
-    padding: 0.75rem;
-    border-bottom: 1px solid #eee;
+    flex-direction: column;
   }
   
-  .commit-id {
-    font-family: monospace;
-    color: #777;
-    margin-right: 1rem;
+  .tab-nav {
+    display: flex;
+    border-bottom: 1px solid #ddd;
   }
   
-  .commit-summary {
+  .tab-btn {
+    padding: 0.75rem 1.5rem;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
     font-weight: 500;
   }
   
-  .commit-meta {
-    font-size: 0.85rem;
-    color: #666;
-    margin-top: 0.25rem;
+  .tab-btn.active {
+    border-bottom-color: #0066cc;
+    color: #0066cc;
+  }
+  
+  .tab-content {
+    flex: 1;
+    overflow: auto;
   }
   
   .empty-state {
@@ -215,28 +247,59 @@
     justify-content: center;
     height: 100%;
     color: #666;
+    text-align: center;
+    padding: 2rem;
   }
   
-  .loading {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    width: 100%;
-    font-size: 1.2rem;
-    color: #666;
-  }
-  
-  .open-repo-btn {
-    padding: 0.5rem 1rem;
+  .open-repo-btn, .primary-btn {
+    padding: 0.5rem 1.5rem;
     background-color: #0066cc;
     color: white;
     border: none;
     border-radius: 4px;
     cursor: pointer;
+    font-size: 1rem;
+    margin-top: 1rem;
   }
   
-  .open-repo-btn:hover {
+  .open-repo-btn:hover, .primary-btn:hover {
     background-color: #0055aa;
+  }
+  
+  .current-repo {
+    font-weight: 500;
+    margin-right: 0.5rem;
+  }
+  
+  .repo-btn {
+    padding: 0.25rem 0.5rem;
+    background-color: #f8f9fa;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  
+  .loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    width: 100%;
+  }
+  
+  .spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #0066cc;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 1rem;
+  }
+  
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
   }
 </style> 
