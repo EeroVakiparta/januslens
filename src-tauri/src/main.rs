@@ -6,8 +6,9 @@
 mod git;
 mod error;
 
-use log::{error, info};
+use log::info;
 use std::sync::Once;
+use tauri::Manager;
 
 static INIT: Once = Once::new();
 
@@ -22,6 +23,7 @@ fn main() {
     setup();
     
     tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             // Repository and branch commands
             git::list_repositories,
@@ -41,6 +43,14 @@ fn main() {
             git::unstage_file,
             git::create_commit
         ])
+        .setup(|app| {
+            #[cfg(debug_assertions)]
+            {
+                let window = app.get_webview_window("main").unwrap();
+                window.open_devtools();
+            }
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("Error while running JanusLens application");
 } 

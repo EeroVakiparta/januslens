@@ -1,10 +1,9 @@
 use crate::error::JanusError;
-use git2::{Branch, BranchType, Commit, Repository, Oid, ErrorCode, Status, StatusOptions, StatusShow};
+use git2::{BranchType, Commit, Repository, Oid, StatusOptions, StatusShow};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
-use log::{debug, error, info};
+use log::{error, info};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RepoInfo {
@@ -59,7 +58,7 @@ pub fn open_repository(path: String) -> Result<RepoInfo, JanusError> {
     let repo_path = Path::new(&path);
     
     // Attempt to open the repository
-    let repo = Repository::open(repo_path).map_err(|e| {
+    let _repo = Repository::open(repo_path).map_err(|e| {
         error!("Failed to open repository at {}: {}", path, e);
         JanusError::GitError(format!("Failed to open repository: {}", e))
     })?;
@@ -113,13 +112,18 @@ pub fn get_branches(repo_path: String) -> Result<Vec<BranchInfo>, JanusError> {
         })?;
         
         if let Some(name) = name {
-            let commit_id = branch.get().target().unwrap_or_default().to_string();
-            let is_head = head_oid.map_or(false, |h| h == branch.get().target().unwrap_or_default());
+            let commit_id = branch.get().target().map_or_else(|| "".to_string(), |id| id.to_string());
+            let is_head = head_oid.map_or(false, |h| branch.get().target().map_or(false, |target| h == target));
             
-            let upstream_name = branch.upstream()
-                .ok()
-                .and_then(|b| b.name().ok().flatten())
-                .map(|n| n.to_string());
+            let upstream_name = match branch.upstream() {
+                Ok(upstream_branch) => {
+                    match upstream_branch.name() {
+                        Ok(Some(name)) => Some(name.to_string()),
+                        _ => None,
+                    }
+                },
+                Err(_) => None,
+            };
             
             branches.push(BranchInfo {
                 name: name.to_string(),
@@ -334,7 +338,7 @@ pub fn get_status(repo_path: String) -> Result<RepoStatus, JanusError> {
 /// Gets the diff for a specific file
 #[tauri::command]
 pub fn get_diff(repo_path: String, file_path: String, staged: bool) -> Result<String, JanusError> {
-    let repo = Repository::open(&repo_path).map_err(|e| {
+    let _repo = Repository::open(&repo_path).map_err(|e| {
         error!("Failed to open repository at {}: {}", repo_path, e);
         JanusError::GitError(format!("Failed to open repository: {}", e))
     })?;
@@ -375,7 +379,7 @@ pub fn get_diff(repo_path: String, file_path: String, staged: bool) -> Result<St
 /// Stages a file
 #[tauri::command]
 pub fn stage_file(repo_path: String, file_path: String) -> Result<(), JanusError> {
-    let repo = Repository::open(&repo_path).map_err(|e| {
+    let _repo = Repository::open(&repo_path).map_err(|e| {
         error!("Failed to open repository at {}: {}", repo_path, e);
         JanusError::GitError(format!("Failed to open repository: {}", e))
     })?;
@@ -402,7 +406,7 @@ pub fn stage_file(repo_path: String, file_path: String) -> Result<(), JanusError
 /// Unstages a file
 #[tauri::command]
 pub fn unstage_file(repo_path: String, file_path: String) -> Result<(), JanusError> {
-    let repo = Repository::open(&repo_path).map_err(|e| {
+    let _repo = Repository::open(&repo_path).map_err(|e| {
         error!("Failed to open repository at {}: {}", repo_path, e);
         JanusError::GitError(format!("Failed to open repository: {}", e))
     })?;
@@ -489,7 +493,7 @@ pub fn create_branch(repo_path: String, branch_name: String) -> Result<BranchInf
         JanusError::GitError(format!("Failed to create branch {}: {}", branch_name, e))
     })?;
     
-    let branch_oid = branch_ref.get().target().unwrap_or_default();
+    let branch_oid = branch_ref.get().target().map_or_else(|| Oid::zero(), |oid| oid);
     
     Ok(BranchInfo {
         name: branch_name,

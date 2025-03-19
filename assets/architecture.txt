@@ -1,0 +1,15 @@
++---------------------+           +----------------------+
+|     Frontend        |           |      Backend         |
+| (Svelte + TypeScript)|<--------->| (Rust + Tauri + git2) |
++---------------------+           +----------------------+
+         ^                                  ^
+         |                                  |
+         v                                  v
++---------------------+           +----------------------+
+|    User Interface   |           |    Git Repository    |
+|  (HTML/CSS/Browser) |           |   (File System)      |
++---------------------+           +----------------------+
+
+This is a text-based placeholder for the architecture diagram.
+Replace this with an actual image visualization using a proper diagramming tool.
+The diagram should illustrate the frontend-backend separation and data flow between components. 

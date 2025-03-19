@@ -8,11 +8,18 @@ Cargo.lock
 /.output/
 /node_modules/
 /.tauri/
+src-tauri/target/
+src-tauri/gen/
 
 # Web assets
 /build/
 /.svelte-kit/
 /package/
+/public/build/
+
+# Vite
+.vite/
+/dist-ssr/
 
 # IDE
 /.idea/
@@ -53,6 +60,8 @@ $RECYCLE.BIN/
 
 # Testing
 /coverage/
+/playwright-report/
+/test-results/
 
 # Production build files
 *.pem
