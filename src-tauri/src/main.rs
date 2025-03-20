@@ -5,6 +5,12 @@
 
 mod git;
 mod error;
+#[cfg(test)]
+mod test_utils;
+#[cfg(test)]
+mod tests {
+    mod file_operations_test;
+}
 
 use log::info;
 use std::sync::Once;
