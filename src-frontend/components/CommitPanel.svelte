@@ -1,426 +1,187 @@
-<script lang="ts">
-  import { invoke } from '@tauri-apps/api/tauri';
-  import DiffViewer from './DiffViewer.svelte';
+<script>
+  import { onMount, createEventDispatcher } from 'svelte';
+  import { Logger } from '../services/logger';
+  import { invoke } from '@tauri-apps/api/core';
   
   export let repoPath = '';
   
-  let stagedFiles = [];
-  let unstagedFiles = [];
-  let commitMessage = '';
-  let selectedFile = null;
-  let diffContent = '';
-  let isLoading = false;
-  let errorMessage = '';
+  let message = '';
+  let isCommitting = false;
+  let error = null;
   
-  $: if (repoPath) {
-    refreshStatus();
-  }
+  // Detect if we're in development mode without Tauri
+  const isDevWithoutTauri = () => {
+    return typeof window !== 'undefined' && 
+           (window.__TAURI__ === undefined || 
+            (typeof window.__TAURI__ === 'object' && !window.__TAURI__.core) ||
+            process.env.NODE_ENV === 'development');
+  };
   
-  async function refreshStatus() {
-    if (!repoPath) return;
-    
-    try {
-      isLoading = true;
-      
-      // In a real implementation, this would fetch from the backend
-      // const status = await invoke('get_status', { repoPath });
-      // stagedFiles = status.staged;
-      // unstagedFiles = status.unstaged;
-      
-      // Mock data for now
-      unstagedFiles = [
-        { path: 'src/main.rs', status: 'modified' },
-        { path: 'README.md', status: 'modified' },
-        { path: 'src/new_file.rs', status: 'new' }
-      ];
-      
-      stagedFiles = [
-        { path: 'Cargo.toml', status: 'modified' }
-      ];
-      
-    } catch (error) {
-      console.error('Failed to get repository status:', error);
-      errorMessage = `Failed to get repository status: ${error.message || error}`;
-    } finally {
-      isLoading = false;
-    }
-  }
+  const dispatch = createEventDispatcher();
   
-  async function viewDiff(file) {
-    selectedFile = file;
-    
-    try {
-      // In a real implementation, this would fetch the diff from the backend
-      // const diff = await invoke('get_diff', { 
-      //   repoPath,
-      //   filePath: file.path,
-      //   staged: file.staged 
-      // });
-      // diffContent = diff;
-      
-      // Mock diff data
-      if (file.status === 'modified') {
-        diffContent = `diff --git a/${file.path} b/${file.path}
---- a/${file.path}
-+++ b/${file.path}
-@@ -1,5 +1,5 @@
- # Example File
--This is the old content
-+This is the new modified content
- 
- More text here
- End of file`;
-      } else if (file.status === 'new') {
-        diffContent = `diff --git a/${file.path} b/${file.path}
---- /dev/null
-+++ b/${file.path}
-@@ -0,0 +1,3 @@
-+// New file
-+
-+// With some content`;
-      }
-      
-    } catch (error) {
-      console.error('Failed to get diff:', error);
-      errorMessage = `Failed to get diff: ${error.message || error}`;
-      diffContent = '';
-    }
-  }
-  
-  async function stageFile(file) {
-    try {
-      // In a real implementation, this would call the backend
-      // await invoke('stage_file', { repoPath, filePath: file.path });
-      
-      // For mock, just update our lists
-      unstagedFiles = unstagedFiles.filter(f => f.path !== file.path);
-      stagedFiles = [...stagedFiles, { ...file, staged: true }];
-      
-      if (selectedFile && selectedFile.path === file.path) {
-        selectedFile = { ...file, staged: true };
-      }
-      
-    } catch (error) {
-      console.error('Failed to stage file:', error);
-      errorMessage = `Failed to stage file: ${error.message || error}`;
-    }
-  }
-  
-  async function unstageFile(file) {
-    try {
-      // In a real implementation, this would call the backend
-      // await invoke('unstage_file', { repoPath, filePath: file.path });
-      
-      // For mock, just update our lists
-      stagedFiles = stagedFiles.filter(f => f.path !== file.path);
-      unstagedFiles = [...unstagedFiles, { ...file, staged: false }];
-      
-      if (selectedFile && selectedFile.path === file.path) {
-        selectedFile = { ...file, staged: false };
-      }
-      
-    } catch (error) {
-      console.error('Failed to unstage file:', error);
-      errorMessage = `Failed to unstage file: ${error.message || error}`;
-    }
-  }
-  
+  // Create a commit with the current message
   async function createCommit() {
-    if (!commitMessage.trim()) {
-      errorMessage = 'Commit message cannot be empty';
+    if (!repoPath) {
+      error = 'No repository selected';
       return;
     }
     
-    if (stagedFiles.length === 0) {
-      errorMessage = 'No files staged for commit';
+    if (!message.trim()) {
+      error = 'Commit message cannot be empty';
       return;
     }
+    
+    Logger.info('CommitPanel', 'Creating commit', { repoPath, message });
+    isCommitting = true;
+    error = null;
     
     try {
-      // In a real implementation, this would call the backend
-      // await invoke('create_commit', { repoPath, message: commitMessage });
+      if (isDevWithoutTauri()) {
+        // Mock implementation for development
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Emit event to refresh status
+        dispatch('commitCreated', { message });
+        
+        // Clear message after successful commit
+        message = '';
+        Logger.info('CommitPanel', 'Mock commit created successfully');
+        return;
+      }
       
-      // Mock success
-      // Reset UI
-      commitMessage = '';
-      stagedFiles = [];
-      selectedFile = null;
-      diffContent = '';
-      errorMessage = '';
+      // Actual backend call
+      const result = await invoke('create_commit', { repoPath, message });
       
-      // Refresh to get new status
-      refreshStatus();
+      // Emit event to refresh status
+      dispatch('commitCreated', { message });
       
-    } catch (error) {
-      console.error('Failed to create commit:', error);
-      errorMessage = `Failed to create commit: ${error.message || error}`;
+      // Clear message after successful commit
+      message = '';
+      Logger.info('CommitPanel', 'Commit created successfully', { result });
+    } catch (err) {
+      const errorMessage = err.message || String(err);
+      error = `Failed to create commit: ${errorMessage}`;
+      Logger.error('CommitPanel', 'Failed to create commit', { error: errorMessage });
+    } finally {
+      isCommitting = false;
     }
   }
+  
+  onMount(() => {
+    Logger.info('CommitPanel', 'Component mounted');
+  });
 </script>
 
-<div class="commit-panel">
-  <div class="changes-section">
-    <div class="section-header">
-      <h3>Changes</h3>
-      <button class="refresh-btn" on:click={refreshStatus}>↻</button>
-    </div>
-    
-    {#if isLoading}
-      <div class="loading">Loading changes...</div>
-    {:else}
-      {#if errorMessage}
-        <div class="error-message">{errorMessage}</div>
-      {/if}
-      
-      <div class="file-section">
-        <h4>Staged Changes</h4>
-        {#if stagedFiles.length === 0}
-          <div class="empty-message">No staged changes</div>
-        {:else}
-          <ul class="file-list">
-            {#each stagedFiles as file}
-              <li class={selectedFile && selectedFile.path === file.path ? 'selected' : ''}>
-                <div class="file-info" on:click={() => viewDiff(file)}>
-                  <span class="file-status">{file.status}</span>
-                  <span class="file-path">{file.path}</span>
-                </div>
-                <button 
-                  class="unstage-btn"
-                  on:click={(e) => {
-                    e.stopPropagation();
-                    unstageFile(file);
-                  }}
-                >
-                  -
-                </button>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      </div>
-      
-      <div class="file-section">
-        <h4>Unstaged Changes</h4>
-        {#if unstagedFiles.length === 0}
-          <div class="empty-message">No unstaged changes</div>
-        {:else}
-          <ul class="file-list">
-            {#each unstagedFiles as file}
-              <li class={selectedFile && selectedFile.path === file.path ? 'selected' : ''}>
-                <div class="file-info" on:click={() => viewDiff(file)}>
-                  <span class="file-status">{file.status}</span>
-                  <span class="file-path">{file.path}</span>
-                </div>
-                <button 
-                  class="stage-btn"
-                  on:click={(e) => {
-                    e.stopPropagation();
-                    stageFile(file);
-                  }}
-                >
-                  +
-                </button>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      </div>
-    {/if}
-  </div>
+<div class="commit-panel" data-test-id="jl-commit-panel">
+  <h3>Commit Changes</h3>
   
-  <div class="diff-section">
-    {#if selectedFile}
-      <DiffViewer diffContent={diffContent} fileName={selectedFile.path} />
-    {:else}
-      <div class="empty-diff">
-        <p>Select a file to view changes</p>
-      </div>
-    {/if}
-  </div>
+  {#if error}
+    <div class="error" data-test-id="jl-commit-error">{error}</div>
+  {/if}
   
-  <div class="commit-section">
-    <textarea 
-      bind:value={commitMessage} 
-      placeholder="Commit message"
-      rows="3"
+  <div class="commit-form">
+    <textarea
+      placeholder="Commit message..."
+      bind:value={message}
+      disabled={isCommitting || !repoPath}
+      data-test-id="jl-commit-message"
     ></textarea>
-    <button class="commit-btn" on:click={createCommit} disabled={stagedFiles.length === 0}>
-      Commit Changes
+    
+    <button
+      class="commit-button"
+      on:click={createCommit}
+      disabled={isCommitting || !message.trim() || !repoPath}
+      data-test-id="jl-commit-button"
+    >
+      {#if isCommitting}
+        Committing...
+      {:else}
+        Commit
+      {/if}
     </button>
   </div>
+  
+  {#if !repoPath}
+    <div class="hint">Select a repository to commit changes.</div>
+  {/if}
 </div>
 
 <style>
   .commit-panel {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color, #ddd);
+  }
+  
+  h3 {
+    margin: 0 0 8px 0;
+    font-size: 16px;
+    font-weight: 500;
+  }
+  
+  .error {
+    margin-bottom: 8px;
+    padding: 8px;
+    color: var(--error-color, #d32f2f);
+    background-color: rgba(211, 47, 47, 0.1);
+    border-radius: 4px;
+    font-size: 14px;
+  }
+  
+  .commit-form {
     display: flex;
     flex-direction: column;
-    height: 100%;
-  }
-  
-  .section-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  
-  .section-header h3 {
-    margin: 0;
-    font-size: 1rem;
-  }
-  
-  .changes-section {
-    flex: 0 0 auto;
-    padding: 0.5rem;
-    border-bottom: 1px solid #ddd;
-  }
-  
-  .file-section {
-    margin-bottom: 1rem;
-  }
-  
-  .file-section h4 {
-    margin: 0.5rem 0;
-    font-size: 0.9rem;
-    color: #555;
-  }
-  
-  .file-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    max-height: 150px;
-    overflow-y: auto;
-  }
-  
-  .file-list li {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.25rem 0.5rem;
-    border-radius: 4px;
-    margin-bottom: 0.1rem;
-    cursor: pointer;
-  }
-  
-  .file-list li:hover {
-    background-color: #f0f0f0;
-  }
-  
-  .file-list li.selected {
-    background-color: #e0f0ff;
-  }
-  
-  .file-info {
-    display: flex;
-    align-items: center;
-    flex: 1;
-  }
-  
-  .file-status {
-    font-size: 0.75rem;
-    padding: 0.1rem 0.3rem;
-    border-radius: 2px;
-    background-color: #eee;
-    margin-right: 0.5rem;
-  }
-  
-  .file-path {
-    font-size: 0.85rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  
-  .stage-btn, .unstage-btn {
-    background: none;
-    border: 1px solid #ddd;
-    border-radius: 2px;
-    width: 1.5rem;
-    height: 1.5rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    font-weight: bold;
-    font-size: 1rem;
-  }
-  
-  .stage-btn {
-    color: #28a745;
-  }
-  
-  .unstage-btn {
-    color: #dc3545;
-  }
-  
-  .diff-section {
-    flex: 1;
-    overflow-y: auto;
-    padding: 0.5rem;
-    border-bottom: 1px solid #ddd;
-    min-height: 200px;
-  }
-  
-  .empty-diff {
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #666;
-    font-style: italic;
-  }
-  
-  .commit-section {
-    flex: 0 0 auto;
-    padding: 0.5rem;
+    gap: 8px;
   }
   
   textarea {
     width: 100%;
-    padding: 0.5rem;
-    border: 1px solid #ddd;
+    min-height: 80px;
+    padding: 8px;
+    border: 1px solid var(--border-color, #ddd);
     border-radius: 4px;
-    margin-bottom: 0.5rem;
+    font-family: inherit;
+    font-size: 14px;
     resize: vertical;
   }
   
-  .commit-btn {
-    background-color: #28a745;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    padding: 0.5rem 1rem;
-    cursor: pointer;
-    width: 100%;
+  textarea:focus {
+    outline: none;
+    border-color: var(--primary-color, #0066cc);
+    box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.2);
   }
   
-  .commit-btn:disabled {
-    background-color: #6c757d;
+  textarea:disabled {
+    background-color: var(--disabled-bg, #f5f5f5);
+    color: var(--text-disabled, #ccc);
     cursor: not-allowed;
   }
   
-  .loading, .empty-message {
-    padding: 0.5rem;
-    color: #666;
-    font-style: italic;
-  }
-  
-  .error-message {
-    color: #dc3545;
-    font-size: 0.85rem;
-    margin: 0.5rem 0;
-    padding: 0.5rem;
-    background-color: #f8d7da;
+  .commit-button {
+    padding: 8px 16px;
+    background-color: var(--primary-color, #0066cc);
+    color: white;
+    border: none;
     border-radius: 4px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s;
   }
   
-  .refresh-btn {
-    background: none;
-    border: 1px solid #ddd;
-    border-radius: 2px;
-    width: 1.5rem;
-    height: 1.5rem;
-    cursor: pointer;
-    font-size: 1rem;
+  .commit-button:hover:not(:disabled) {
+    background-color: var(--primary-dark, #004c99);
+  }
+  
+  .commit-button:disabled {
+    background-color: var(--disabled-bg, #cccccc);
+    cursor: not-allowed;
+  }
+  
+  .hint {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-light, #999);
+    font-style: italic;
   }
 </style> 
