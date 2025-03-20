@@ -32,7 +32,8 @@ fn main() {
             git::get_commits,
             git::create_branch,
             git::delete_branch,
-            git::checkout_branch,
+            git::is_git_repository,
+            git::get_common_repo_locations,
             
             // File operations
             git::list_files,
@@ -42,7 +43,11 @@ fn main() {
             // Staging and commit commands
             git::stage_file,
             git::unstage_file,
-            git::create_commit
+            git::create_commit,
+
+            // Branch and merge operations
+            git::checkout_branch,
+            git::merge_branch
         ])
         .setup(|app| {
             #[cfg(debug_assertions)]

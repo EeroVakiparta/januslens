@@ -790,6 +790,171 @@ pub fn checkout_branch(repo_path: String, branch_name: String) -> Result<(), Jan
     Ok(())
 }
 
+/// Struct to represent merge results
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MergeResult {
+    pub success: bool,
+    pub has_conflicts: bool,
+    pub message: String,
+    pub conflicted_files: Vec<String>,
+}
+
+/// Merges a source branch into the current branch
+#[tauri::command]
+pub fn merge_branch(repo_path: String, source_branch: String) -> Result<MergeResult, JanusError> {
+    let repo = Repository::open(&repo_path).map_err(|e| {
+        error!("Failed to open repository at {}: {}", repo_path, e);
+        JanusError::GitError(format!("Failed to open repository: {}", e))
+    })?;
+    
+    // Get the current branch (destination)
+    let head = repo.head().map_err(|e| {
+        error!("Failed to get HEAD reference: {}", e);
+        JanusError::GitError(format!("Failed to get HEAD reference: {}", e))
+    })?;
+    
+    if !head.is_branch() {
+        return Err(JanusError::GitError("HEAD is not pointing to a branch. Cannot merge.".to_string()));
+    }
+    
+    let head_name = head.shorthand().unwrap_or("unknown");
+    info!("Current branch (destination): {}", head_name);
+    
+    // Get the source branch
+    let source_branch_ref = repo.find_branch(&source_branch, BranchType::Local).map_err(|e| {
+        error!("Failed to find branch {}: {}", source_branch, e);
+        JanusError::GitError(format!("Failed to find branch {}: {}", source_branch, e))
+    })?;
+    
+    let source_commit = source_branch_ref.get().peel_to_commit().map_err(|e| {
+        error!("Failed to get commit from branch {}: {}", source_branch, e);
+        JanusError::GitError(format!("Failed to get commit from branch {}: {}", source_branch, e))
+    })?;
+    
+    info!("Source branch: {}", source_branch);
+
+    // Check if there are uncommitted changes
+    let statuses = repo.statuses(None).map_err(|e| {
+        error!("Failed to get repository status: {}", e);
+        JanusError::GitError(format!("Failed to get repository status: {}", e))
+    })?;
+    
+    if statuses.iter().any(|s| s.status() != git2::Status::CURRENT) {
+        return Err(JanusError::GitError(
+            "There are uncommitted changes. Please commit or stash them before merging.".to_string()
+        ));
+    }
+    
+    // Prepare checkout options
+    let mut checkout_options = git2::build::CheckoutBuilder::new();
+    checkout_options.allow_conflicts(true);
+    
+    // Create an annotated commit from the branch ref for merging
+    let annotated_commit = repo.reference_to_annotated_commit(&source_branch_ref.into_reference())
+        .map_err(|e| {
+            error!("Failed to create annotated commit: {}", e);
+            JanusError::GitError(format!("Failed to create annotated commit: {}", e))
+        })?;
+    
+    // Perform the merge
+    match repo.merge(&[&annotated_commit], None, Some(&mut checkout_options)) {
+        Ok(_) => {
+            // Check for conflicts
+            let mut index = repo.index().map_err(|e| {
+                error!("Failed to get repository index: {}", e);
+                JanusError::GitError(format!("Failed to get repository index: {}", e))
+            })?;
+            
+            if index.has_conflicts() {
+                info!("Merge has conflicts that need to be resolved");
+                
+                // Get conflicted files
+                let mut conflicted_files = Vec::new();
+                for entry in index.conflicts().map_err(|e| {
+                    error!("Failed to get conflict information: {}", e);
+                    JanusError::GitError(format!("Failed to get conflict information: {}", e))
+                })? {
+                    let entry = entry.map_err(|e| {
+                        error!("Failed to get conflict entry: {}", e);
+                        JanusError::GitError(format!("Failed to get conflict entry: {}", e))
+                    })?;
+                    
+                    if let Some(our_entry) = entry.our {
+                        let path = String::from_utf8_lossy(&our_entry.path).to_string();
+                        conflicted_files.push(path);
+                    } else if let Some(their_entry) = entry.their {
+                        let path = String::from_utf8_lossy(&their_entry.path).to_string();
+                        conflicted_files.push(path);
+                    }
+                }
+                
+                Ok(MergeResult {
+                    success: false,
+                    has_conflicts: true,
+                    message: format!("Merge from '{}' into '{}' has conflicts that need to be resolved", 
+                                    source_branch, head_name),
+                    conflicted_files,
+                })
+            } else {
+                // No conflicts, create the merge commit
+                let signature = repo.signature().map_err(|e| {
+                    error!("Failed to get signature: {}", e);
+                    JanusError::GitError(format!("Failed to get signature: {}", e))
+                })?;
+                
+                let message = format!("Merge branch '{}' into '{}'", source_branch, head_name);
+                let head_commit = head.peel_to_commit().map_err(|e| {
+                    error!("Failed to get HEAD commit: {}", e);
+                    JanusError::GitError(format!("Failed to get HEAD commit: {}", e))
+                })?;
+                
+                let tree_id = index.write_tree().map_err(|e| {
+                    error!("Failed to write merge tree: {}", e);
+                    JanusError::GitError(format!("Failed to write merge tree: {}", e))
+                })?;
+                
+                let tree = repo.find_tree(tree_id).map_err(|e| {
+                    error!("Failed to find tree: {}", e);
+                    JanusError::GitError(format!("Failed to find tree: {}", e))
+                })?;
+                
+                let _commit = repo.commit(
+                    Some("HEAD"),
+                    &signature,
+                    &signature,
+                    &message,
+                    &tree,
+                    &[&head_commit, &source_commit]
+                ).map_err(|e| {
+                    error!("Failed to create merge commit: {}", e);
+                    JanusError::GitError(format!("Failed to create merge commit: {}", e))
+                })?;
+                
+                // Clean up merge state
+                repo.cleanup_state().map_err(|e| {
+                    error!("Failed to cleanup merge state: {}", e);
+                    JanusError::GitError(format!("Failed to cleanup merge state: {}", e))
+                })?;
+                
+                Ok(MergeResult {
+                    success: true,
+                    has_conflicts: false,
+                    message: format!("Successfully merged '{}' into '{}'", source_branch, head_name),
+                    conflicted_files: Vec::new(),
+                })
+            }
+        },
+        Err(e) => {
+            error!("Merge failed: {}", e);
+            
+            // Try to cleanup merge state
+            let _ = repo.cleanup_state();
+            
+            Err(JanusError::GitError(format!("Failed to merge branches: {}", e)))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     include!("git_test.rs");

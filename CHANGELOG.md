@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git repository operations through git2-rs
 - Documentation framework (README, Developer Guide, Architecture Overview, Setup Guide)
 - Automated test script for repository path handling
+- Branch merging functionality with conflict detection
+- Git Features Roadmap to track implementation progress
 
 ### Fixed
 - Icon configuration issues in Tauri setup
@@ -23,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Improved
 - Code organization with helper method for repository info creation
 - Test coverage for git repository path handling
+- Test coverage for git merge operations
 
 ## [0.1.0] - TBD
 
