@@ -1,18 +1,61 @@
 :root {
+  /* Typography */
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
     Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
   font-size: 16px;
   line-height: 24px;
   font-weight: 400;
 
-  color: #0f0f0f;
-  background-color: #f6f6f6;
+  /* Light Theme Colors */
+  --text-color: #0f0f0f;
+  --text-light: #666666;
+  --text-muted: #888888;
+  --text-disabled: #bbbbbb;
+  
+  --bg-color: #f6f6f6;
+  --panel-bg: #f0f0f0;
+  --code-bg: #f5f5f5;
+  
+  --primary-color: #0066cc;
+  --primary-light: rgba(0, 102, 204, 0.1);
+  --primary-dark: #004c99;
+  
+  --border-color: #dddddd;
+  --error-color: #d32f2f;
+  
+  --tab-bar-bg: #e0e0e0;
+  --tab-bg: #dadada;
+  --tab-active-bg: #f5f5f5;
+  --tab-hover-bg: #e5e5e5;
+  
+  --status-bar-bg: #e0e0e0;
+  --heading-color: #444444;
+  --disabled-bg: #f5f5f5;
+  
+  --item-hover-bg: #f0f0f0;
+  --item-selected-bg: #e6f7ff;
+  
+  /* Code Diff Colors */
+  --addition-color: #22863a;
+  --deletion-color: #cb2431;
+  --chunk-header-color: #0366d6;
+  --meta-color: #6a737d;
 
+  /* Other properties */
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
+}
+
+/* Dark theme support (future implementation) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* These variables will be used when we implement dark mode */
+    --future-dark-bg: #1e1e1e;
+    --future-dark-text: #e0e0e0;
+  }
 }
 
 html, body {
@@ -48,6 +91,6 @@ select, input, button {
 }
 
 select:focus, input:focus, button:focus {
-  outline: 2px solid #0066cc;
+  outline: 2px solid var(--primary-color);
   outline-offset: 1px;
 } 

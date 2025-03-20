@@ -8,6 +8,18 @@
   </head>
   <body>
     <div id="app"></div>
+    <!-- Optional test UI loader for development -->
+    <script>
+      // Check if we want to load the test environment
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.has('test-ui')) {
+        // Load test UI script first to mock Tauri
+        const testScript = document.createElement('script');
+        testScript.type = 'module';
+        testScript.src = '/src-frontend/test-ui.ts';
+        document.head.appendChild(testScript);
+      }
+    </script>
     <script type="module" src="/src-frontend/main.ts"></script>
   </body>
 </html> 

@@ -27,6 +27,7 @@ chrono = { version = "0.4.31", features = ["serde"] }
 regex = "1.9.5"
 lazy_static = "1.4.0"
 rayon = "1.8.0"
+colored = "2.0.4"
 
 [dev-dependencies]
 tempfile = "3.8.0"

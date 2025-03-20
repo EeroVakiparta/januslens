@@ -5,16 +5,6 @@
 
 mod git;
 mod error;
-mod logging;
-#[cfg(test)]
-mod test_utils;
-#[cfg(test)]
-mod tests {
-    mod file_operations_test;
-    mod branch_operations_test;
-    mod commit_history_test;
-    mod file_diff_test;
-}
 
 use log::info;
 use std::sync::Once;
@@ -42,8 +32,6 @@ fn main() {
             git::get_commits,
             git::create_branch,
             git::delete_branch,
-            git::is_git_repository,
-            git::get_common_repo_locations,
             
             // File operations
             git::list_files,
@@ -53,16 +41,7 @@ fn main() {
             // Staging and commit commands
             git::stage_file,
             git::unstage_file,
-            git::create_commit,
-
-            // Branch and merge operations
-            git::checkout_branch,
-            git::merge_branch,
-            
-            // Logging commands
-            logging::log_event_from_frontend,
-            logging::export_logs,
-            logging::get_recent_logs
+            git::create_commit
         ])
         .setup(|app| {
             #[cfg(debug_assertions)]

@@ -8,7 +8,8 @@
     "allowJs": true,
     "checkJs": true,
     "isolatedModules": true,
-    "strict": false
+    "strict": false,
+    "lib": ["ESNext", "DOM", "DOM.Iterable"]
   },
   "include": ["src-frontend/**/*.d.ts", "src-frontend/**/*.ts", "src-frontend/**/*.js", "src-frontend/**/*.svelte"],
   "references": [{ "path": "./tsconfig.node.json" }]
