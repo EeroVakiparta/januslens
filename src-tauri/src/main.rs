@@ -10,6 +10,9 @@ mod test_utils;
 #[cfg(test)]
 mod tests {
     mod file_operations_test;
+    mod branch_operations_test;
+    mod commit_history_test;
+    mod file_diff_test;
 }
 
 use log::info;
