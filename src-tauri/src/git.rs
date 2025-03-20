@@ -4,12 +4,208 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use log::{error, info};
+use std::fs;
 
-#[derive(Debug, Serialize, Deserialize)]
+/// Represents a Git repository with metadata
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RepoInfo {
     pub path: String,
     pub name: String,
     pub last_accessed: u64,
+}
+
+impl RepoInfo {
+    /// Creates a new RepoInfo from a PathBuf
+    pub fn from_path(path: PathBuf) -> Result<Self, JanusError> {
+        if !path.exists() {
+            return Err(JanusError::GitError(format!("Path does not exist: {:?}", path)));
+        }
+
+        // Extract repository name from the path
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("Unknown")
+            .to_string();
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        Ok(Self {
+            path: path.to_string_lossy().to_string(),
+            name,
+            last_accessed: now,
+        })
+    }
+}
+
+/// Storage for recent repositories
+#[derive(Debug, Serialize, Deserialize)]
+struct RecentRepos {
+    repositories: Vec<RepoInfo>,
+}
+
+impl RecentRepos {
+    fn new() -> Self {
+        Self {
+            repositories: Vec::new(),
+        }
+    }
+
+    fn load() -> Result<Self, JanusError> {
+        let config_dir = get_config_dir()?;
+        let recent_repos_path = config_dir.join("recent_repos.json");
+
+        if !recent_repos_path.exists() {
+            return Ok(Self::new());
+        }
+
+        let content = fs::read_to_string(recent_repos_path)
+            .map_err(|e| JanusError::IoError(e.to_string()))?;
+        
+        serde_json::from_str(&content)
+            .map_err(|e| JanusError::ConfigError(format!("Failed to parse recent repositories: {}", e)))
+    }
+
+    fn save(&self) -> Result<(), JanusError> {
+        let config_dir = get_config_dir()?;
+        
+        if !config_dir.exists() {
+            fs::create_dir_all(&config_dir)
+                .map_err(|e| JanusError::IoError(format!("Failed to create config directory: {}", e)))?;
+        }
+        
+        let recent_repos_path = config_dir.join("recent_repos.json");
+        let content = serde_json::to_string_pretty(self)
+            .map_err(|e| JanusError::ConfigError(format!("Failed to serialize recent repositories: {}", e)))?;
+        
+        fs::write(recent_repos_path, content)
+            .map_err(|e| JanusError::IoError(format!("Failed to write recent repositories: {}", e)))
+    }
+
+    fn add(&mut self, repo: RepoInfo) -> Result<(), JanusError> {
+        // Remove if already exists
+        self.repositories.retain(|r| r.path != repo.path);
+        
+        // Add to the front
+        self.repositories.insert(0, repo);
+        
+        // Keep only the 20 most recent
+        if self.repositories.len() > 20 {
+            self.repositories.truncate(20);
+        }
+        
+        self.save()
+    }
+}
+
+/// Get the configuration directory for JanusLens
+fn get_config_dir() -> Result<PathBuf, JanusError> {
+    let home_dir = dirs::home_dir()
+        .ok_or_else(|| JanusError::ConfigError("Could not find home directory".to_string()))?;
+    
+    #[cfg(target_os = "macos")]
+    let config_dir = home_dir.join("Library/Application Support/com.januslens.dev");
+    
+    #[cfg(target_os = "windows")]
+    let config_dir = home_dir.join("AppData/Roaming/JanusLens");
+    
+    #[cfg(target_os = "linux")]
+    let config_dir = home_dir.join(".config/januslens");
+    
+    Ok(config_dir)
+}
+
+/// List recently opened repositories
+#[tauri::command]
+pub fn list_repositories() -> Result<Vec<RepoInfo>, JanusError> {
+    let recent_repos = RecentRepos::load()?;
+    Ok(recent_repos.repositories)
+}
+
+/// Open a repository and add it to recent repositories
+#[tauri::command]
+pub fn open_repository(path: String) -> Result<RepoInfo, JanusError> {
+    // Validate that this is a git repository
+    let repo_path = Path::new(&path);
+    if !repo_path.exists() {
+        return Err(JanusError::GitError(format!("Path does not exist: {}", path)));
+    }
+    
+    // Try to open as git repository to validate
+    Repository::open(repo_path)
+        .map_err(|e| JanusError::GitError(format!("Not a valid git repository: {}", e)))?;
+    
+    // Convert to absolute path if it's relative
+    let absolute_path = if repo_path.is_absolute() {
+        repo_path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|e| JanusError::IoError(format!("Failed to get current directory: {}", e)))?
+            .join(repo_path)
+            .canonicalize()
+            .map_err(|e| JanusError::IoError(format!("Failed to canonicalize path: {}", e)))?
+    };
+    
+    // Create repo info using the helper method
+    let repo_info = RepoInfo::from_path(absolute_path)?;
+    
+    // Add to recent repositories
+    let mut recent_repos = RecentRepos::load()?;
+    recent_repos.add(repo_info.clone())?;
+    
+    Ok(repo_info)
+}
+
+/// Check if a path is a valid git repository
+#[tauri::command]
+pub fn is_git_repository(path: String) -> Result<bool, JanusError> {
+    let repo_path = Path::new(&path);
+    if !repo_path.exists() {
+        return Ok(false);
+    }
+    
+    // Convert to absolute path if it's relative
+    let absolute_path = if repo_path.is_absolute() {
+        repo_path.to_path_buf()
+    } else {
+        match std::env::current_dir().map(|dir| dir.join(repo_path)) {
+            Ok(path) => path,
+            Err(_) => return Ok(false), // If we can't resolve the path, it's not a valid repo
+        }
+    };
+    
+    match Repository::open(absolute_path) {
+        Ok(_) => Ok(true),
+        Err(_) => Ok(false),
+    }
+}
+
+/// Get common locations where git repositories might be found
+#[tauri::command]
+pub fn get_common_repo_locations() -> Result<Vec<String>, JanusError> {
+    let mut locations = Vec::new();
+    
+    if let Some(home_dir) = dirs::home_dir() {
+        // Common project directories
+        let common_dirs = vec![
+            "projects", "repos", "git", "workspace", "code", "dev", "development",
+            "Documents/projects", "Documents/repos", "Documents/git", "Documents/code",
+        ];
+        
+        for dir in common_dirs {
+            let path = home_dir.join(dir);
+            if path.exists() && path.is_dir() {
+                if let Some(path_str) = path.to_str() {
+                    locations.push(path_str.to_string());
+                }
+            }
+        }
+    }
+    
+    Ok(locations)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -44,44 +240,12 @@ pub struct RepoStatus {
     pub unstaged: Vec<FileStatus>,
 }
 
-/// Lists recently accessed repositories
-#[tauri::command]
-pub fn list_repositories() -> Result<Vec<RepoInfo>, JanusError> {
-    // In a real implementation, this would load from a config file or database
-    // For now, we'll return an empty list
-    Ok(Vec::new())
-}
-
-/// Opens a Git repository at the specified path
-#[tauri::command]
-pub fn open_repository(path: String) -> Result<RepoInfo, JanusError> {
-    let repo_path = Path::new(&path);
-    
-    // Attempt to open the repository
-    let _repo = Repository::open(repo_path).map_err(|e| {
-        error!("Failed to open repository at {}: {}", path, e);
-        JanusError::GitError(format!("Failed to open repository: {}", e))
-    })?;
-    
-    // Get repository information
-    let repo_name = repo_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("Unknown")
-        .to_string();
-    
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    
-    info!("Successfully opened repository: {}", repo_name);
-    
-    Ok(RepoInfo {
-        path,
-        name: repo_name,
-        last_accessed: now,
-    })
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FileEntry {
+    pub name: String,
+    pub path: String,
+    #[serde(rename = "type")]
+    pub type_: String,
 }
 
 /// Gets all branches in the repository
@@ -626,10 +790,7 @@ pub fn checkout_branch(repo_path: String, branch_name: String) -> Result<(), Jan
     Ok(())
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct FileEntry {
-    pub name: String,
-    pub path: String,
-    #[serde(rename = "type")]
-    pub type_: String,
+#[cfg(test)]
+mod tests {
+    include!("git_test.rs");
 } 
