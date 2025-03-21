@@ -1,0 +1,49 @@
+name: Update Dependencies
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Run weekly on Sunday at midnight
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  update-dependencies:
+    name: Update Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16
+          cache: 'npm'
+      
+      - name: Configure Git
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+      
+      - name: Update npm dependencies
+        run: |
+          npm outdated || true
+          npm update
+      
+      - name: Update Rust dependencies
+        run: |
+          cd src-tauri
+          cargo update
+      
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(deps): update dependencies"
+          title: "chore(deps): update dependencies"
+          body: |
+            This PR updates dependencies to their latest versions.
+            
+            - Automated changes by GitHub Actions dependency update workflow
+            - Review carefully before merging
+          branch: dependency-updates
+          base: main
+          labels: dependencies 

@@ -1,0 +1,18 @@
+# This file defines the code owners for different parts of the JanusLens codebase
+# Each line is a file pattern followed by one or more owners
+
+# Default owners for everything in the repo
+* @eero-vakiparta
+
+# Rust backend code
+/src-tauri/ @eero-vakiparta
+
+# Frontend code
+/src-frontend/ @eero-vakiparta
+
+# GitHub Actions workflows
+/.github/workflows/ @eero-vakiparta
+
+# Documentation
+/docs/ @eero-vakiparta
+*.md @eero-vakiparta 
