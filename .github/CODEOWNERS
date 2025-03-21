@@ -2,17 +2,17 @@
 # Each line is a file pattern followed by one or more owners
 
 # Default owners for everything in the repo
-* @eero-vakiparta
+* @EeroVakiparta
 
 # Rust backend code
-/src-tauri/ @eero-vakiparta
+/src-tauri/ @EeroVakiparta
 
 # Frontend code
-/src-frontend/ @eero-vakiparta
+/src-frontend/ @EeroVakiparta
 
 # GitHub Actions workflows
-/.github/workflows/ @eero-vakiparta
+/.github/workflows/ @EeroVakiparta
 
 # Documentation
-/docs/ @eero-vakiparta
-*.md @eero-vakiparta 
+/docs/ @EeroVakiparta
+*.md @EeroVakiparta 
