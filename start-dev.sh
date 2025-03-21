@@ -13,10 +13,11 @@ check_port() {
 # Function to kill process on a specific port
 kill_process_on_port() {
   echo "Attempting to kill process on port $1..."
-  pid=$(lsof -ti:"$1")
-  if [ -n "$pid" ]; then
-    echo "Killing process $pid on port $1"
-    kill -9 "$pid"
+  pids=$(lsof -ti:"$1")
+  if [ -n "$pids" ]; then
+    # Safely handle multiple PIDs by using xargs
+    echo "Killing processes on port $1: $pids"
+    lsof -ti:"$1" | xargs -r kill -9
     sleep 1
     if check_port "$1"; then
       echo "Failed to kill process on port $1"
@@ -57,9 +58,24 @@ echo "Starting development server..."
 if [ "$BACKGROUND" = true ]; then
   echo "Running in background mode. Output will be redirected to dev-server.log"
   npm run dev > dev-server.log 2>&1 &
-  echo "Server started in background with PID: $!"
+  PID=$!
+  echo "Server started in background with PID: $PID"
   echo "To view logs: tail -f dev-server.log"
-  echo "To stop the server later: lsof -ti:$PORT | xargs kill -9"
+  echo "To stop the server later: kill -9 $PID or lsof -ti:$PORT | xargs kill -9"
 else
-  npm run dev
+  # Add a timeout to prevent getting stuck indefinitely (macOS compatible)
+  npm run dev &
+  DEV_PID=$!
+  
+  # Kill after 5 minutes if still running
+  (
+    sleep 300
+    if ps -p $DEV_PID > /dev/null; then
+      echo "Development server has been running for 5 minutes. Terminating..."
+      kill -9 $DEV_PID
+    fi
+  ) &
+  
+  # Wait for the dev process to complete
+  wait $DEV_PID
 fi 

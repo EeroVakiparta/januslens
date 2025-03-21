@@ -6,6 +6,7 @@
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
+  "ai_assistant_note": "When running Tauri commands: 1) For development: npm run tauri dev (after ensuring port 1420 is free) 2) For builds: npm run tauri build 3) If issues with binary selection, add --bin januslens to the command",
   "identifier": "com.januslens.dev",
   "productName": "JanusLens",
   "version": "0.1.0",
