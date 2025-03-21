@@ -11,20 +11,20 @@ default-run = "januslens"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [build-dependencies]
-tauri-build = { version = "0.2.0", features = [] }
+tauri-build = { version = "2.0.0", features = [] }
 
 [dependencies]
-tauri = { version = "0.2.0", features = [] }
-serde = { version = "0.2.0"] }
+tauri = { version = "2.0.0", features = [] }
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 git2 = "0.18.0"
 thiserror = "1.0.47"
-tokio = { version = "0.2.0"] }
+tokio = { version = "1.32.0", features = ["full"] }
 log = "0.4.20"
 env_logger = "0.10.0"
 tauri-plugin-shell = "2.0.0"
 dirs = "5.0.1"
-chrono = { version = "0.2.0"] }
+chrono = { version = "0.4.31", features = ["serde"] }
 regex = "1.9.5"
 lazy_static = "1.4.0"
 rayon = "1.8.0"
