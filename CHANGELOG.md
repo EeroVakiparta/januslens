@@ -1,3 +1,7 @@
+# Changes in 0.2.0 (2025-03-21)
+
+Initial release
+
 # Changelog
 
 All notable changes to JanusLens will be documented in this file.
