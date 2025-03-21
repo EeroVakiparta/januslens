@@ -120,15 +120,52 @@ jobs:
           sudo apt-get install -y libgtk-3-dev webkit2gtk-4.0 libappindicator3-dev librsvg2-dev patchelf
       
       - name: Install dependencies
-        run: npm ci
+        run: |
+          # Set non-interactive mode for npm
+          npm config set fund false
+          npm config set update-notifier false
+          npm ci --no-progress
       
-      - name: Build and upload
-        uses: tauri-apps/tauri-action@v0
+      - name: Ensure tools directory is executable
+        run: |
+          chmod +x tools/*.sh
+        shell: bash
+      
+      - name: Build with timeout protection (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          # Use our safe runner script with a 45-minute timeout
+          ./tools/safe-run.sh "npm run tauri build" 2700
+        shell: bash
+      
+      - name: Build with timeout protection (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          npm run tauri build
+        shell: powershell
+        timeout-minutes: 45
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: januslens-${{ matrix.os }}
+          path: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: ignore
+          
+      - name: Create GitHub Release with artifacts
+        uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: "v${{ github.event.inputs.version }}"
-          releaseName: "JanusLens v${{ github.event.inputs.version }}"
-          releaseBody: "See CHANGELOG.md for details"
-          releaseDraft: false
+          tag_name: "v${{ github.event.inputs.version }}"
+          files: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/msi/*.msi
+          draft: false
           prerelease: false 
